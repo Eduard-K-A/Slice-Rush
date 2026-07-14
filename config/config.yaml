@@ -1,0 +1,104 @@
+camera:
+  device_index: 0
+  backend: dshow
+  fourcc: MJPG
+  frame_width: 1280
+  frame_height: 720
+  target_fps: 30
+  manual_exposure: true
+  auto_exposure_off_value: 0.25
+  exposure_value: -5.0
+  gain: 0
+  disable_auto_white_balance: true
+  white_balance_temperature: null
+  mirror: true
+  reconnect_after_failures: 30
+  reconnect_cooldown_seconds: 3.0
+detection:
+  markers:
+  - name: tip
+    hsv_lower:
+    - 140
+    - 120
+    - 0
+    hsv_upper:
+    - 170
+    - 255
+    - 142
+    min_area_px: 15
+    max_area_px: 4000
+  blur_kernel: 5
+  morphology:
+    open_kernel: 3
+    open_iterations: 1
+    close_kernel: 5
+    close_iterations: 2
+tracking:
+  kalman:
+    process_noise: 0.01
+    measurement_noise: 0.1
+    max_missed_frames: 8
+game:
+  timers:
+    countdown_seconds: 3
+    round_duration_seconds: 10
+    round_transition_seconds: 2.0
+    game_over_seconds: 2.5
+    score_submit_timeout_seconds: 20
+  starting_hearts: 3
+  score_target:
+    base: 40
+    increment: 40
+  difficulty:
+    base_spawn_interval_seconds: 1.2
+    spawn_interval_decay_per_round: 0.08
+    min_spawn_interval_seconds: 0.35
+    base_bad_object_ratio: 0.15
+    bad_object_ratio_increment_per_round: 0.03
+    max_bad_object_ratio: 0.5
+  scoring:
+    fruit_points:
+      apple: 10
+      banana: 10
+      strawberry: 10
+      pineapple: 15
+      watermelon: 20
+    bad_object_types:
+    - bomb
+    - rock
+  combo:
+    combo_bonus_threshold: 5
+    combo_bonus_points: 0
+  physics:
+    gravity_px_s2: 900
+    fall_speed_min_px_s: 40
+    fall_speed_max_px_s: 120
+    horizontal_speed_max_px_s: 60
+    spin_max_deg_s: 180
+  slice:
+    min_speed_px_s: 350
+    trail_max_points: 6
+display:
+  window_width: 1280
+  window_height: 720
+  fullscreen: false
+  fps_cap: 60
+  show_debug_overlay: false
+effects:
+  screen_shake_enabled: true
+  particles_per_slice: 14
+  max_particles: 600
+  score_popup_seconds: 0.8
+audio:
+  enabled: true
+  volume: 0.8
+assets:
+  sprites_dir: assets/sprites
+  sounds_dir: assets/sounds
+  entity_sprite_px: 96
+persistence:
+  db_path: data/slice_rush.db
+  leaderboard_top_n: 10
+  idle_timeout_seconds: 20
+  name_entry: true
+  name_max_chars: 12
