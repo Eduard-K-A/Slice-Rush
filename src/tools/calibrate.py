@@ -1,17 +1,16 @@
-"""Interactive HSV + exposure calibration.
-
-Run on-site before the booth opens and re-run whenever lighting changes.
-Uses the same CameraCapture + blur/morphology as the game, so what you
-see in the mask window is exactly what the game will see.
+"""Interactive calibration tool — supports both HSV and hand detection modes.
 
 Run: python -m src.tools.calibrate
 
-Keys:
+HSV mode keys:
   t  edit the 'tip' marker      h  edit the 'handle' marker (if configured)
   e  cycle exposure presets (-5, -7, -9)
   d  open the DirectShow driver settings dialog (manual exposure/WB lock)
   s  save the edited marker's HSV bounds + current exposure to config.yaml
   q  quit without saving
+
+Hand mode keys:
+  q  quit  (no calibration needed — just verify the skeleton is drawn on your hand)
 """
 from __future__ import annotations
 
@@ -23,6 +22,7 @@ import yaml
 
 from src.config_loader import load_config
 from src.vision.capture import CameraCapture
+from src.vision.detection import HandDetector
 
 CONFIG_PATH = "config/config.yaml"
 EXPOSURE_PRESETS = [-5, -7, -9]
@@ -74,15 +74,7 @@ def _save(marker_name: str, lower: list[int], upper: list[int], exposure: float)
     ))
 
 
-def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    print(__doc__)
-    config = load_config(CONFIG_PATH)
-    capture = CameraCapture(config.camera)
-    if not capture.open():
-        print("Camera failed to open — run: python -m src.tools.list_cameras")
-        return 1
-
+def _run_hsv(config, capture) -> None:
     markers = {m.name: m for m in config.detection.markers}
     current = "tip"
     exposure = float(config.camera.exposure_value)
@@ -151,6 +143,47 @@ def main() -> int:
         elif key == ord("s"):
             lower, upper = _get_bounds()
             _save(current, lower, upper, exposure)
+
+
+def _run_hand(config, capture) -> None:
+    print("Hand detection mode — show your hand to the camera.")
+    print(f"Tracking landmark index {config.hand_detection.landmark_index} "
+          f"(9=palm center, 8=index fingertip, 0=wrist).")
+    print("Press q to quit.")
+    detector = HandDetector(config.hand_detection)
+    last_id = 0
+    while True:
+        capture.maintain()
+        frame, frame_id = capture.read_latest()
+        if frame is not None and frame_id != last_id:
+            last_id = frame_id
+            detections = detector.detect(frame)
+            det = detections["tip"]
+            _ov = detector.get_last_overlay()
+            overlay = _ov if _ov is not None else frame.copy()
+            status = f"hand: {'FOUND' if det.found else 'not found'}"
+            if det.found:
+                status += f"  pos=({det.center[0]:.0f}, {det.center[1]:.0f})"
+            cv2.putText(overlay, status, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 200, 255), 2)
+            cv2.imshow("hand calibrate", overlay)
+
+        if cv2.waitKey(5) & 0xFF == ord("q"):
+            break
+
+
+def main() -> int:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    print(__doc__)
+    config = load_config(CONFIG_PATH)
+    capture = CameraCapture(config.camera)
+    if not capture.open():
+        print("Camera failed to open — run: python -m src.tools.list_cameras")
+        return 1
+
+    if config.detection_mode == "hand":
+        _run_hand(config, capture)
+    else:
+        _run_hsv(config, capture)
 
     capture.release()
     cv2.destroyAllWindows()
