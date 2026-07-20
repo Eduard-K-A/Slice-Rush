@@ -14,6 +14,7 @@ from src.persistence.db import SessionRecord
 
 class GamePhase(Enum):
     IDLE_ATTRACT = "idle_attract"
+    SETTINGS_MENU = "settings_menu"
     COUNTDOWN = "countdown"
     PLAYING = "playing"
     ROUND_TRANSITION = "round_transition"
@@ -25,6 +26,7 @@ class GameStateMachine:
     def __init__(self, config: GameConfig):
         self._config = config
         self.phase = GamePhase.IDLE_ATTRACT
+        self.menu_cursor: int = 0  # 0=Start, 1=Settings, 2=Exit
         self.score = 0
         self.hearts = config.starting_hearts
         self.round_number = 1
@@ -49,15 +51,25 @@ class GameStateMachine:
         self.countdown_timer = self._config.timers.countdown_seconds
         self.phase = GamePhase.COUNTDOWN
 
-    def register_fruit_hit(self, points: int) -> None:
+    def register_fruit_hit(self, points: int) -> bool:
+        """Returns True if a heart was restored this hit."""
         if self.phase not in (GamePhase.PLAYING, GamePhase.ROUND_TRANSITION):
-            return
+            return False
         self.combo += 1
         self.max_combo = max(self.max_combo, self.combo)
         self.score += points
         combo_cfg = self._config.combo
         if combo_cfg.combo_bonus_points > 0 and self.combo % combo_cfg.combo_bonus_threshold == 0:
             self.score += combo_cfg.combo_bonus_points
+        heart_restored = False
+        if self.combo % 8 == 0 and self.hearts < self._config.starting_hearts:
+            self.hearts += 1
+            heart_restored = True
+        if self.phase is GamePhase.PLAYING and self.score >= self.current_round_target():
+            self.round_number += 1
+            self.transition_timer = self._config.timers.round_transition_seconds
+            self.phase = GamePhase.ROUND_TRANSITION
+        return heart_restored
 
     def register_bad_hit(self) -> None:
         if self.phase not in (GamePhase.PLAYING, GamePhase.ROUND_TRANSITION):
@@ -133,6 +145,12 @@ class GameStateMachine:
         )
         self.phase = GamePhase.IDLE_ATTRACT
         return record
+
+    def enter_settings(self) -> None:
+        self.phase = GamePhase.SETTINGS_MENU
+
+    def exit_settings_to_idle(self) -> None:
+        self.phase = GamePhase.IDLE_ATTRACT
 
     def abort_to_idle(self) -> None:
         """R key or idle timeout — abandoned runs are not scores."""
