@@ -97,9 +97,14 @@ class EffectsSystem:
             )
         color = JUICE_COLORS.get(entity.subtype, (255, 255, 255))
         self._burst(entity.position, self._config.particles_per_slice, [color])
+        self._splat(entity.position, 6, [color])
         text = f"+{entity.points}" if combo < 2 else f"+{entity.points} x{combo}!"
         self._popup(text, entity.position, (255, 255, 255))
         self._enforce_caps()
+
+    def spawn_heart_restore(self, x: float, y: float) -> None:
+        pos = np.array([x, y], dtype=np.float32)
+        self._popup("+1 ♥", pos, (255, 80, 80))
 
     def spawn_bad_hit(self, entity: FallingEntity) -> None:
         n = self._config.particles_per_slice
@@ -124,6 +129,22 @@ class EffectsSystem:
                     velocity=np.array([np.cos(angle), np.sin(angle)], dtype=np.float32) * speed,
                     color=rng.choice(colors) if len(colors) > 1 else colors[0],
                     radius_px=rng.uniform(3, 7),
+                )
+            )
+
+    def _splat(self, position: np.ndarray, count: int, colors) -> None:
+        """Large, slow-moving ink-blob particles that give a juice-splatter look."""
+        rng = self._rng
+        for _ in range(count):
+            angle = rng.uniform(0, 2 * np.pi)
+            speed = rng.uniform(15, 70)
+            self.particles.append(
+                JuiceParticle(
+                    position=position.astype(np.float32).copy(),
+                    velocity=np.array([np.cos(angle) * speed, np.sin(angle) * speed - 25], dtype=np.float32),
+                    color=rng.choice(colors) if len(colors) > 1 else colors[0],
+                    radius_px=rng.uniform(10, 22),
+                    lifetime_s=rng.uniform(0.28, 0.48),
                 )
             )
 
