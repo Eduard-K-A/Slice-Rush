@@ -72,6 +72,18 @@ class DetectionConfig:
     morphology: MorphologyConfig
 
 
+# --------------------------------------------------------------------------- hand detection
+
+
+@dataclass
+class HandDetectionConfig:
+    landmark_index: int = 8                                          # 8=index fingertip, 9=middle MCP, 0=wrist
+    min_detection_confidence: float = 0.7
+    min_tracking_confidence: float = 0.5
+    max_num_hands: int = 1
+    model_path: str = "assets/models/hand_landmarker.task"          # auto-downloaded on first run
+
+
 # --------------------------------------------------------------------------- tracking
 
 
@@ -113,6 +125,7 @@ class DifficultyConfig:
     base_bad_object_ratio: float = 0.15
     bad_object_ratio_increment_per_round: float = 0.03
     max_bad_object_ratio: float = 0.5
+    spawn_count_per_interval: int = 2          # how many entities to spawn each interval trigger
 
 
 @dataclass
@@ -142,6 +155,7 @@ class PhysicsConfig:
     fall_speed_max_px_s: float = 120
     horizontal_speed_max_px_s: float = 60
     spin_max_deg_s: float = 180
+    fall_speed_scale_per_round: float = 0.12   # multiply fall speed by (1 + scale*(round-1))
 
 
 @dataclass
@@ -213,7 +227,9 @@ class PersistenceConfig:
 @dataclass
 class AppConfig:
     camera: CameraConfig
-    detection: DetectionConfig
+    detection_mode: str               # "hsv" or "hand"
+    detection: Optional[DetectionConfig]
+    hand_detection: Optional[HandDetectionConfig]
     tracking: TrackingConfig
     game: GameConfig
     display: DisplayConfig
@@ -271,36 +287,50 @@ def load_config(path: str) -> AppConfig:
         reconnect_cooldown_seconds=_require(cam, "reconnect_cooldown_seconds", "camera"),
     )
 
-    # --- detection (fail fast) ---
-    det = _require_section(raw, "detection")
-    raw_markers = _require(det, "markers", "detection")
-    if not raw_markers:
-        raise ConfigError("config.yaml: 'detection.markers' must list at least the 'tip' marker")
-    markers = []
-    for m in raw_markers:
-        markers.append(
-            MarkerConfig(
-                name=_require(m, "name", "detection.markers[]"),
-                hsv_lower=tuple(_require(m, "hsv_lower", "detection.markers[]")),
-                hsv_upper=tuple(_require(m, "hsv_upper", "detection.markers[]")),
-                min_area_px=_require(m, "min_area_px", "detection.markers[]"),
-                max_area_px=_require(m, "max_area_px", "detection.markers[]"),
+    # --- detection_mode ---
+    detection_mode = raw.get("detection_mode", "hsv")
+    if detection_mode not in ("hsv", "hand"):
+        raise ConfigError(f"config.yaml: 'detection_mode' must be 'hsv' or 'hand', got {detection_mode!r}")
+
+    # --- HSV detection (fail fast when mode is hsv) ---
+    detection: Optional[DetectionConfig] = None
+    if detection_mode == "hsv":
+        det = _require_section(raw, "detection")
+        raw_markers = _require(det, "markers", "detection")
+        if not raw_markers:
+            raise ConfigError("config.yaml: 'detection.markers' must list at least the 'tip' marker")
+        markers = []
+        for m in raw_markers:
+            markers.append(
+                MarkerConfig(
+                    name=_require(m, "name", "detection.markers[]"),
+                    hsv_lower=tuple(_require(m, "hsv_lower", "detection.markers[]")),
+                    hsv_upper=tuple(_require(m, "hsv_upper", "detection.markers[]")),
+                    min_area_px=_require(m, "min_area_px", "detection.markers[]"),
+                    max_area_px=_require(m, "max_area_px", "detection.markers[]"),
+                )
             )
+        if not any(m.name == "tip" for m in markers):
+            raise ConfigError("config.yaml: 'detection.markers' must include a marker named 'tip'")
+        morph_raw = _require(det, "morphology", "detection")
+        morphology = MorphologyConfig(
+            open_kernel=_require(morph_raw, "open_kernel", "detection.morphology"),
+            open_iterations=_require(morph_raw, "open_iterations", "detection.morphology"),
+            close_kernel=_require(morph_raw, "close_kernel", "detection.morphology"),
+            close_iterations=_require(morph_raw, "close_iterations", "detection.morphology"),
         )
-    if not any(m.name == "tip" for m in markers):
-        raise ConfigError("config.yaml: 'detection.markers' must include a marker named 'tip'")
-    morph_raw = _require(det, "morphology", "detection")
-    morphology = MorphologyConfig(
-        open_kernel=_require(morph_raw, "open_kernel", "detection.morphology"),
-        open_iterations=_require(morph_raw, "open_iterations", "detection.morphology"),
-        close_kernel=_require(morph_raw, "close_kernel", "detection.morphology"),
-        close_iterations=_require(morph_raw, "close_iterations", "detection.morphology"),
-    )
-    detection = DetectionConfig(
-        markers=markers,
-        blur_kernel=_require(det, "blur_kernel", "detection"),
-        morphology=morphology,
-    )
+        detection = DetectionConfig(
+            markers=markers,
+            blur_kernel=_require(det, "blur_kernel", "detection"),
+            morphology=morphology,
+        )
+
+    # --- hand detection (defaults allowed when mode is hand) ---
+    hand_detection: Optional[HandDetectionConfig] = None
+    if detection_mode == "hand":
+        hand_detection = _optional_dataclass(
+            HandDetectionConfig, raw.get("hand_detection"), "hand_detection"
+        )
 
     # --- tracking (defaults allowed) ---
     trk = raw.get("tracking") or {}
@@ -344,7 +374,9 @@ def load_config(path: str) -> AppConfig:
 
     return AppConfig(
         camera=camera,
+        detection_mode=detection_mode,
         detection=detection,
+        hand_detection=hand_detection,
         tracking=tracking,
         game=game,
         display=display,
@@ -353,3 +385,24 @@ def load_config(path: str) -> AppConfig:
         assets=assets,
         persistence=persistence,
     )
+
+
+def save_config(path: str, updates: dict) -> None:
+    """Deep-merge `updates` into the YAML at `path` and write back.
+    Only keys present in `updates` are touched; everything else is preserved."""
+    import copy
+    with open(path, "r", encoding="utf-8") as fh:
+        raw = yaml.safe_load(fh)
+
+    def _deep_merge(base: dict, patch: dict) -> dict:
+        result = copy.deepcopy(base)
+        for k, v in patch.items():
+            if isinstance(v, dict) and isinstance(result.get(k), dict):
+                result[k] = _deep_merge(result[k], v)
+            else:
+                result[k] = v
+        return result
+
+    merged = _deep_merge(raw, updates)
+    with open(path, "w", encoding="utf-8") as fh:
+        yaml.safe_dump(merged, fh, default_flow_style=False, sort_keys=False)
