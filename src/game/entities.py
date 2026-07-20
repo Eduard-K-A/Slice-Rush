@@ -65,9 +65,10 @@ class EntitySpawner:
 
         r = self._radius
         phys = cfg.physics
+        speed_scale = 1.0 + phys.fall_speed_scale_per_round * (round_number - 1)
         x = self._rng.uniform(2 * r, self._width - 2 * r)
-        vy = self._rng.uniform(phys.fall_speed_min_px_s, phys.fall_speed_max_px_s)
-        vx = self._rng.uniform(-phys.horizontal_speed_max_px_s, phys.horizontal_speed_max_px_s)
+        vy = self._rng.uniform(phys.fall_speed_min_px_s, phys.fall_speed_max_px_s) * speed_scale
+        vx = self._rng.uniform(-phys.horizontal_speed_max_px_s, phys.horizontal_speed_max_px_s) * speed_scale
         return FallingEntity(
             id=next_id,
             entity_type=entity_type,
