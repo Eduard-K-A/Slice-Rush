@@ -14,7 +14,11 @@ def test_shipped_config_loads():
     assert cfg.game.score_target.base == 40
     assert cfg.game.scoring.fruit_points["watermelon"] == 20
     assert cfg.persistence.leaderboard_top_n == 10
-    assert any(m.name == "tip" for m in cfg.detection.markers)
+    assert cfg.detection_mode in ("hsv", "hand")
+    if cfg.detection_mode == "hsv":
+        assert any(m.name == "tip" for m in cfg.detection.markers)
+    else:
+        assert cfg.hand_detection is not None
 
 
 def test_missing_required_camera_key_fails_fast(tmp_path):
@@ -39,11 +43,34 @@ def test_missing_gameplay_section_uses_defaults(tmp_path):
     assert cfg.effects.particles_per_slice == 14
 
 
-def test_missing_tip_marker_fails(tmp_path):
+def test_missing_tip_marker_fails_hsv_mode(tmp_path):
     with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
         raw = yaml.safe_load(fh)
+    raw["detection_mode"] = "hsv"
     raw["detection"]["markers"][0]["name"] = "not_tip"
     p = tmp_path / "no_tip.yaml"
     p.write_text(yaml.safe_dump(raw), encoding="utf-8")
     with pytest.raises(ConfigError, match="tip"):
         load_config(str(p))
+
+
+def test_invalid_detection_mode_fails(tmp_path):
+    with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
+        raw = yaml.safe_load(fh)
+    raw["detection_mode"] = "laser"
+    p = tmp_path / "bad_mode.yaml"
+    p.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    with pytest.raises(ConfigError, match="detection_mode"):
+        load_config(str(p))
+
+
+def test_hand_detection_mode_loads(tmp_path):
+    with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
+        raw = yaml.safe_load(fh)
+    raw["detection_mode"] = "hand"
+    p = tmp_path / "hand_mode.yaml"
+    p.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    cfg = load_config(str(p))
+    assert cfg.detection_mode == "hand"
+    assert cfg.detection is None
+    assert cfg.hand_detection is not None

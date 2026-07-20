@@ -33,7 +33,7 @@ def test_fruit_slice_spawns_expected_counts():
     fx.spawn_fruit_slice(make_entity())
     assert len(fx.halves) == 2
     assert {h.sprite_key for h in fx.halves} == {"apple_half_1", "apple_half_2"}
-    assert len(fx.particles) == cfg.particles_per_slice
+    assert len(fx.particles) == cfg.particles_per_slice + 6  # burst + 6 splat blobs
     assert len(fx.popups) == 1
     assert fx.popups[0].text == "+10"
 

@@ -22,12 +22,11 @@ def test_start_new_game_resets():
     assert (sm.score, sm.hearts, sm.round_number, sm.combo, sm.max_combo) == (0, 3, 1, 0, 0)
 
 
-def test_round_advances_when_target_met_at_expiry():
+def test_round_advances_immediately_when_target_met():
     sm, cfg = make_state()
     start_playing(sm, cfg)
     for _ in range(4):
-        sm.register_fruit_hit(10)  # 40 pts = round 1 target
-    sm.tick(cfg.timers.round_duration_seconds + 0.01)
+        sm.register_fruit_hit(10)  # 40 pts = round 1 target — advances without waiting for timer
     assert sm.phase is GamePhase.ROUND_TRANSITION
     assert sm.round_number == 2
     sm.tick(cfg.timers.round_transition_seconds + 0.01)
@@ -43,13 +42,13 @@ def test_game_over_when_target_missed_at_expiry():
     assert sm.phase is GamePhase.GAME_OVER
 
 
-def test_score_not_evaluated_before_expiry():
+def test_round_does_not_advance_mid_round_below_target():
     sm, cfg = make_state()
     start_playing(sm, cfg)
-    for _ in range(10):
-        sm.register_fruit_hit(10)  # well past target mid-round
+    for _ in range(3):
+        sm.register_fruit_hit(10)  # 30 < 40 target
     sm.tick(1.0)
-    assert sm.phase is GamePhase.PLAYING  # A2: timer always runs the full round
+    assert sm.phase is GamePhase.PLAYING
 
 
 def test_immediate_game_over_at_zero_hearts_mid_round():
