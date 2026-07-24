@@ -589,8 +589,16 @@ def run(config: AppConfig) -> None:
                             settings_fullscreen = not settings_fullscreen
                     elif event.key == pygame.K_RETURN:
                         if settings_cursor == _SETTINGS_CALIBRATE:
-                            root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                            subprocess.Popen([sys.executable, "-m", "src.tools.calibrate"], cwd=root)
+                            if getattr(sys, "frozen", False):
+                                # Frozen: sys.executable is SliceRush.exe; re-launch
+                                # it with --calibrate. cwd = exe dir so config/ resolves.
+                                subprocess.Popen(
+                                    [sys.executable, "--calibrate"],
+                                    cwd=os.path.dirname(sys.executable),
+                                )
+                            else:
+                                root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                                subprocess.Popen([sys.executable, "-m", "src.tools.calibrate"], cwd=root)
                         elif settings_cursor == _SETTINGS_HISTORY:
                             history_rows = leaderboard.get_history(200)
                             history_scroll = 0
