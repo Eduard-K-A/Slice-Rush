@@ -42,8 +42,13 @@ log = logging.getLogger("slice_rush")
 ATTRACT_SPAWN_INTERVAL_S = 1.5
 CAMERA_STALE_AFTER_S = 1.0
 
-_SETTINGS_ITEMS = ["Camera Index", "Detection Mode", "Color Preset", "Window Mode", "Fine-tune Calibration", "Back"]
-_SETTINGS_CAMERA, _SETTINGS_MODE, _SETTINGS_PRESET, _SETTINGS_WINDOW, _SETTINGS_CALIBRATE, _SETTINGS_BACK = range(6)
+_SETTINGS_ITEMS = ["Camera Index", "Detection Mode", "Color Preset", "Window Mode",
+                   "Fine-tune Calibration", "Player History", "Reset Leaderboard", "Back"]
+(_SETTINGS_CAMERA, _SETTINGS_MODE, _SETTINGS_PRESET, _SETTINGS_WINDOW,
+ _SETTINGS_CALIBRATE, _SETTINGS_HISTORY, _SETTINGS_RESET, _SETTINGS_BACK) = range(8)
+
+# History overlay: how many rows are visible at once (drives scroll clamping)
+_HISTORY_VISIBLE_ROWS = 12
 
 # Red is simplified (one range); users needing precise dual-range red should use Fine-tune
 _COLOR_PRESETS = [
@@ -102,8 +107,8 @@ def _draw_settings_screen(
     DIM = (90, 90, 100)
     HI = (255, 255, 255)
     VAL = (255, 210, 80)
-    ITEM_Y = 160
-    SPACING = 72
+    ITEM_Y = 148
+    SPACING = 58
 
     for i, item_label in enumerate(_SETTINGS_ITEMS):
         y = ITEM_Y + i * SPACING
@@ -138,6 +143,10 @@ def _draw_settings_screen(
             v = renderer._font_hud.render(f"< {label_str} >", True, VAL)
         elif i == _SETTINGS_CALIBRATE:
             v = renderer._font_hud.render("ENTER to launch", True, DIM)
+        elif i == _SETTINGS_HISTORY:
+            v = renderer._font_hud.render("ENTER to view", True, DIM)
+        elif i == _SETTINGS_RESET:
+            v = renderer._font_hud.render("ENTER to reset", True, (220, 120, 120))
         else:
             v = renderer._font_hud.render("ENTER / ESC", True, DIM)
         screen.blit(v, (vx - v.get_width(), y))
@@ -145,6 +154,112 @@ def _draw_settings_screen(
     hint = renderer._font_board.render(
         "UP/DOWN  navigate    LEFT/RIGHT  change value    ENTER  confirm    ESC  back",
         True, (70, 70, 85),
+    )
+    screen.blit(hint, (sw // 2 - hint.get_width() // 2, sh - 44))
+
+
+def _draw_history_screen(
+    screen: pygame.Surface,
+    renderer,
+    rows: list,
+    scroll: int,
+) -> None:
+    """Scrollable table of past sessions (newest first). `rows` are the raw
+    tuples returned by Leaderboard.get_history()."""
+    sw, sh = screen.get_size()
+    screen.fill((12, 12, 18))
+
+    title = renderer._font_banner.render("PLAYER HISTORY", True, (220, 220, 255))
+    screen.blit(title, (sw // 2 - title.get_width() // 2, 30))
+    pygame.draw.line(screen, (60, 60, 80), (sw // 8, 116), (7 * sw // 8, 116), 2)
+
+    if not rows:
+        empty = renderer._font_hud.render("No games played yet.", True, (150, 150, 160))
+        screen.blit(empty, (sw // 2 - empty.get_width() // 2, sh // 2 - 20))
+        hint = renderer._font_board.render("ESC  back", True, (70, 70, 85))
+        screen.blit(hint, (sw // 2 - hint.get_width() // 2, sh - 44))
+        return
+
+    left = sw // 8 + 10
+    columns = [
+        ("#", left),
+        ("PLAYER", left + 70),
+        ("SCORE", left + 380),
+        ("ROUNDS", left + 540),
+        ("COMBO", left + 700),
+        ("WHEN", left + 850),
+    ]
+    header_y = 130
+    for label, x in columns:
+        h = renderer._font_board.render(label, True, (120, 120, 140))
+        screen.blit(h, (x, header_y))
+
+    total = len(rows)
+    shown_from = scroll + 1
+    shown_to = min(scroll + _HISTORY_VISIBLE_ROWS, total)
+    pos = renderer._font_board.render(f"{shown_from}-{shown_to} of {total}", True, (100, 100, 120))
+    screen.blit(pos, (7 * sw // 8 - pos.get_width(), header_y))
+
+    row_y = 168
+    spacing = 40
+    visible = rows[scroll:scroll + _HISTORY_VISIBLE_ROWS]
+    for i, row in enumerate(visible):
+        name, score, rounds, combo, played_at = row
+        rank = scroll + i + 1
+        y = row_y + i * spacing
+        color = (235, 235, 245) if i % 2 == 0 else (195, 195, 210)
+        when = str(played_at)[:16]  # 'YYYY-MM-DD HH:MM'
+        cells = [
+            (f"{rank}", columns[0][1]),
+            (str(name)[:18], columns[1][1]),
+            (str(score), columns[2][1]),
+            (str(rounds), columns[3][1]),
+            (f"x{combo}", columns[4][1]),
+            (when, columns[5][1]),
+        ]
+        for text, x in cells:
+            surf = renderer._font_board.render(text, True, color)
+            screen.blit(surf, (x, y))
+
+    hint = renderer._font_board.render("UP / DOWN  scroll        ESC  back", True, (70, 70, 85))
+    screen.blit(hint, (sw // 2 - hint.get_width() // 2, sh - 44))
+
+
+def _draw_confirm_reset_screen(
+    screen: pygame.Surface,
+    renderer,
+    yes_selected: bool,
+) -> None:
+    """Two-button confirmation before wiping the leaderboard/history."""
+    sw, sh = screen.get_size()
+    screen.fill((12, 12, 18))
+
+    title = renderer._font_banner.render("RESET LEADERBOARD", True, (255, 120, 120))
+    screen.blit(title, (sw // 2 - title.get_width() // 2, sh // 2 - 170))
+
+    msg1 = renderer._font_hud.render("Delete ALL saved games and history?", True, (230, 230, 235))
+    screen.blit(msg1, (sw // 2 - msg1.get_width() // 2, sh // 2 - 60))
+    msg2 = renderer._font_board.render("This cannot be undone.", True, (210, 150, 150))
+    screen.blit(msg2, (sw // 2 - msg2.get_width() // 2, sh // 2 - 16))
+
+    btn_w, btn_h, gap = 240, 60, 40
+    bx = sw // 2 - (btn_w * 2 + gap) // 2
+    by = sh // 2 + 50
+    for label, is_yes in (("YES, RESET", True), ("CANCEL", False)):
+        rect = pygame.Rect(bx, by, btn_w, btn_h)
+        selected = (is_yes == yes_selected)
+        if selected:
+            pygame.draw.rect(screen, (180, 60, 60) if is_yes else (70, 70, 105), rect, border_radius=8)
+            text_color = (255, 255, 255)
+        else:
+            pygame.draw.rect(screen, (60, 60, 75), rect, 2, border_radius=8)
+            text_color = (150, 150, 165)
+        surf = renderer._font_hud.render(label, True, text_color)
+        screen.blit(surf, (rect.centerx - surf.get_width() // 2, rect.centery - surf.get_height() // 2))
+        bx += btn_w + gap
+
+    hint = renderer._font_board.render(
+        "LEFT / RIGHT  choose        ENTER  confirm        ESC  cancel", True, (70, 70, 85)
     )
     screen.blit(hint, (sw // 2 - hint.get_width() // 2, sh - 44))
 
@@ -267,6 +382,11 @@ def run(config: AppConfig) -> None:
     settings_fullscreen: bool = config.display.fullscreen
     cam_probe_cache: list = []
     cam_probe_done: bool = False
+    # Settings sub-screens: None (menu) | "history" | "confirm_reset"
+    settings_overlay: str | None = None
+    history_rows: list = []
+    history_scroll: int = 0
+    reset_confirm_yes: bool = False
 
     def _apply_settings() -> None:
         nonlocal detector, trackers, settings_cam_index, settings_detect_mode, screen, sw, sh
@@ -411,11 +531,37 @@ def run(config: AppConfig) -> None:
                             settings_detect_mode = config.detection_mode
                             settings_fullscreen = config.display.fullscreen
                             settings_cursor = 0
+                            settings_overlay = None
                             state.enter_settings()
                         elif state.menu_cursor == 2:        # Exit
                             running = False
                     elif event.key == pygame.K_ESCAPE:
                         running = False
+
+                # ---- Settings: player-history overlay ----
+                elif state.phase is GamePhase.SETTINGS_MENU and settings_overlay == "history":
+                    if event.key == pygame.K_UP:
+                        history_scroll = max(0, history_scroll - 1)
+                    elif event.key == pygame.K_DOWN:
+                        max_scroll = max(0, len(history_rows) - _HISTORY_VISIBLE_ROWS)
+                        history_scroll = min(max_scroll, history_scroll + 1)
+                    elif event.key in (pygame.K_ESCAPE, pygame.K_RETURN, pygame.K_BACKSPACE):
+                        settings_overlay = None
+
+                # ---- Settings: reset-confirmation overlay ----
+                elif state.phase is GamePhase.SETTINGS_MENU and settings_overlay == "confirm_reset":
+                    if event.key in (pygame.K_LEFT, pygame.K_RIGHT):
+                        reset_confirm_yes = not reset_confirm_yes
+                    elif event.key == pygame.K_ESCAPE:
+                        settings_overlay = None
+                    elif event.key == pygame.K_RETURN:
+                        if reset_confirm_yes:
+                            leaderboard.clear()
+                            renderer.leaderboard_rows = leaderboard.get_top(
+                                config.persistence.leaderboard_top_n
+                            )
+                            log.info("leaderboard reset by operator")
+                        settings_overlay = None
 
                 # ---- Settings screen ----
                 elif state.phase is GamePhase.SETTINGS_MENU:
@@ -445,6 +591,13 @@ def run(config: AppConfig) -> None:
                         if settings_cursor == _SETTINGS_CALIBRATE:
                             root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                             subprocess.Popen([sys.executable, "-m", "src.tools.calibrate"], cwd=root)
+                        elif settings_cursor == _SETTINGS_HISTORY:
+                            history_rows = leaderboard.get_history(200)
+                            history_scroll = 0
+                            settings_overlay = "history"
+                        elif settings_cursor == _SETTINGS_RESET:
+                            reset_confirm_yes = False
+                            settings_overlay = "confirm_reset"
                         elif settings_cursor == _SETTINGS_BACK:
                             _apply_settings()
                             state.exit_settings_to_idle()
@@ -598,12 +751,17 @@ def run(config: AppConfig) -> None:
 
         # ---------------------------------------------------------- render
         if state.phase is GamePhase.SETTINGS_MENU:
-            _draw_settings_screen(
-                screen, renderer, settings_cursor,
-                settings_cam_index, cam_probe_cache,
-                settings_detect_mode, settings_preset_idx,
-                settings_fullscreen,
-            )
+            if settings_overlay == "history":
+                _draw_history_screen(screen, renderer, history_rows, history_scroll)
+            elif settings_overlay == "confirm_reset":
+                _draw_confirm_reset_screen(screen, renderer, reset_confirm_yes)
+            else:
+                _draw_settings_screen(
+                    screen, renderer, settings_cursor,
+                    settings_cam_index, cam_probe_cache,
+                    settings_detect_mode, settings_preset_idx,
+                    settings_fullscreen,
+                )
             pygame.display.flip()
             continue
 

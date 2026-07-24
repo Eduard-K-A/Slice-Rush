@@ -50,5 +50,24 @@ class Leaderboard:
         ).fetchall()
         return [SessionRecord(*row) for row in rows]
 
+    def get_history(self, limit: int = 200) -> List[tuple]:
+        """Recent sessions newest-first with timestamps, for the history view.
+        Returns raw tuples (name, score, rounds, max_combo, played_at) since the
+        display needs played_at, which SessionRecord does not carry."""
+        return self._conn.execute(
+            "SELECT player_name, final_score, rounds_reached, max_combo, played_at "
+            "FROM sessions ORDER BY played_at DESC, id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    def clear(self) -> None:
+        """Wipe all saved sessions (leaderboard + history). Booth-safe: a
+        failed reset is logged, never raised."""
+        try:
+            self._conn.execute("DELETE FROM sessions")
+            self._conn.commit()
+        except sqlite3.OperationalError as exc:
+            log.error("leaderboard reset failed: %s", exc)
+
     def close(self) -> None:
         self._conn.close()
